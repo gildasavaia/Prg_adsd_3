@@ -89,7 +89,8 @@ def main() -> None:
     window = args.window
     print(f"Run ID: {run_id}  (client_id={client_id})")
 
-    # === Scenario 1: Riempimento della finestra ===
+
+    # Scenario 1: Riempimento della finestra.
     print(f"\n-- Scenario 1: Invio di {window + 20} richieste (finestra = {window}) --")
 
     total_ops = window + 20
@@ -100,14 +101,16 @@ def main() -> None:
 
     print(f"  INFO  Inviate {total_ops} richieste")
 
-    # === Scenario 2: Replay di una richiesta recente (ancora in finestra) ===
+
+    # Scenario 2: Replay di una richiesta recente (ancora in finestra).
     print(f"\n-- Scenario 2: Replay di richiesta recente (seq={total_ops - 1}) --")
 
     recent_seq = total_ops - 1
     r1 = conn.send(f"SET_REQ {client_id}:{recent_seq} gckey_{run_id} val_{recent_seq}")
     check(assert_starts("Replay recente OK", r1, "OK"))
 
-    # === Scenario 3: Replay di una richiesta scaduta (fuori finestra) ===
+
+    # Scenario 3: Replay di una richiesta scaduta (fuori finestra)
     print(f"\n-- Scenario 3: Replay di richiesta scaduta (seq=0) --")
 
     r2 = conn.send(f"SET_REQ {client_id}:0 gckey_{run_id} val_0")
@@ -115,6 +118,7 @@ def main() -> None:
 
     # Prima entry sopravvissuta dovrebbe essere seq = total_ops - window
     first_alive = total_ops - window
+
     r3 = conn.send(f"SET_REQ {client_id}:{first_alive} gckey_{run_id} val_{first_alive}")
     check(assert_starts(f"Replay prima entry viva (seq={first_alive})", r3, "OK"))
 
@@ -123,7 +127,8 @@ def main() -> None:
     r4 = conn.send(f"SET_REQ {client_id}:{just_expired} gckey_{run_id} val_{just_expired}")
     check(assert_eq(f"Replay entry appena scaduta (seq={just_expired})", r4, "ERR request_id_expired"))
 
-    # === Scenario 4: ACK esplicito ===
+
+    # Scenario 4: ACK esplicito
     print(f"\n-- Scenario 4: ACK esplicito --")
 
     # Creiamo un nuovo client per ACK
@@ -151,7 +156,8 @@ def main() -> None:
     r9 = conn.send(f"SET_REQ {ack_client}:9 {ack_key} val_9")
     check(assert_starts("Post-ACK replay seq=9 OK", r9, "OK"))
 
-    # === Scenario 5: ACK con formato errato ===
+
+    # Scenario 5: ACK con formato errato.
     print(f"\n-- Scenario 5: ACK con formato errato --")
 
     r10 = conn.send("ACK")
@@ -163,7 +169,8 @@ def main() -> None:
     r12 = conn.send("ACK client abc")
     check(assert_eq("ACK seq non numerica", r12, "ERR sequence_number must be an integer"))
 
-    # === Riepilogo ===
+
+    # Riepilogo
     conn.close()
     print(f"\n{'='*50}")
     print(f"Risultati: {passed} PASS, {failed} FAIL")
