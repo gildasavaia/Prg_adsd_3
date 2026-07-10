@@ -246,26 +246,41 @@ def main() -> None:
     client.connect()
 
     try:
-        # === Scenario 1: Operazione normale (nessun fault) ===
+        # ====================================================================================
+        # SCENARIO 1: Operazione normale (Nessun fault)
+        # Verifica semplicemente che l'architettura col Proxy in mezzo funzioni per il traffico pulito.
+        # ====================================================================================
         print("\n-- Scenario 1: SET_REQ via IdempotentClient (nessun fault) --")
 
         r1 = client.set_req(key_a, "hello")
+        # Usiamo il metodo ad alto livello 'set_req' (il client genera il request_id da solo).
         check(assert_eq("set_req normale", r1, "OK version=0"))
 
         r2 = client.getv(key_a)
         check(assert_eq("getv dopo set", r2, "OK hello version=0"))
 
-        # === Scenario 2: SET_REQ con drop -> retry idempotente ===
+        # ====================================================================================
+        # SCENARIO 2: SET_REQ con DROP
+        # Carichiamo la trappola. Il proxy farà cadere la connessione proprio mentre il server
+        # sta confermando l'aggiornamento a version=1. Il client dovrà ritentare da solo.
+        # ====================================================================================
         print("\n-- Scenario 2: SET_REQ con drop -> retry automatico --")
 
         proxy.schedule_drop()
+        # Alziamo la bandierina del sabotaggio!
         r3 = client.set_req(key_a, "world")
+        # Il test si blocca qui per un secondo: il client invia, la linea cade, il client cattura
+        # l'errore, si riconnette, reinvia con lo stesso ID e alla fine ottiene l'OK.
         check(assert_eq("set_req dopo drop+retry", r3, "OK version=1"))
 
         r4 = client.getv(key_a)
+        # Il DB è avanzato a version=1 e NON a version=2. Il retry ha funzionato in modo idempotente!
         check(assert_eq("versione non doppia dopo retry", r4, "OK world version=1"))
 
-        # === Scenario 3: CAS_REQ con drop -> retry idempotente ===
+        # ====================================================================================
+        # SCENARIO 3: CAS_REQ con drop
+        # Stessa cosa, ma testiamo il comportamento automatico sulla funzione Compare-And-Set.
+        # ====================================================================================
         print("\n-- Scenario 3: CAS_REQ con drop -> retry automatico --")
 
         proxy.schedule_drop()
@@ -275,42 +290,59 @@ def main() -> None:
         r6 = client.getv(key_a)
         check(assert_eq("versione dopo CAS retry", r6, "OK updated version=2"))
 
-        # === Scenario 4: DELETE_REQ con drop -> retry idempotente ===
+        # ====================================================================================
+        # SCENARIO 4: DELETE_REQ con drop
+        # Testiamo se il client sa fare il retry automatico anche per le cancellazioni.
+        # ====================================================================================
         print("\n-- Scenario 4: DELETE_REQ con drop -> retry automatico --")
 
         proxy.schedule_drop()
         r7 = client.delete_req(key_a)
+        # Il proxy fa cadere la linea, il client riprova e riceve l'OK preso dalla cache.
         check(assert_eq("delete_req dopo drop+retry", r7, "OK"))
 
         r8 = client.get(key_a)
         check(assert_eq("chiave cancellata", r8, "NOT_FOUND"))
 
-        # === Scenario 5: CAS fallita + drop -> retry dell'errore ===
+        # ====================================================================================
+        # SCENARIO 5: CAS fallita + drop
+        # Cosa succede se il server boccia la nostra richiesta, e per giunta la risposta
+        # bocciata si perde nella rete? Il client deve recuperare l'errore intatto.
+        # ====================================================================================
         print("\n-- Scenario 5: CAS_REQ fallita con drop -> retry errore --")
 
         r9 = client.set_req(key_b, "base")
         check(assert_eq("setup key_b", r9, "OK version=0"))
 
         proxy.schedule_drop()
+        # Inneschiamo la caduta della rete.
         r10 = client.cas_req(key_b, 99, "nope")
+        # Iniziamo una CAS illegale (version 99). Il server dice ERR, il proxy taglia il cavo.
+        # Il client riprova, il server ripesca l'ERR in memoria e lo restituisce.
         check(assert_eq(
             "CAS fallita dopo drop+retry", r10,
             "ERR version_mismatch current=0"
         ))
 
-        # === Scenario 6: ACK via API client ===
+        # ====================================================================================
+        # SCENARIO 6 & 7: ACK via API e continuità
+        # Dimostriamo che il client reale sa inviare gli ACK per fare pulizia, e che subito
+        # dopo il suo contatore interno della sequenza (`_seq`) non si è rotto ma va avanti.
+        # ====================================================================================
         print("\n-- Scenario 6: ACK via client.ack() --")
 
         r11 = client.ack()
+        # Testiamo il metodo 'ack()' integrato nella classe.
         check(assert_eq("ack()", r11, "OK"))
 
-        # === Scenario 7: Operazione post-ACK ===
         print("\n-- Scenario 7: Operazione dopo ACK (continuita' seq) --")
 
         r12 = client.set_req(key_b, "post_ack")
+        # Inviamo una nuova operazione per assicurarci che il contatore delle sequenze non sia azzerato.
         check(assert_starts("set_req post-ACK", r12, "OK"))
 
     finally:
+        # Quando il test finisce (che vada bene o in errore), chiudiamo in modo pulito le risorse.
         client.close()
         proxy.stop()
 
