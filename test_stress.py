@@ -8,8 +8,6 @@ import uuid
 from queue import Queue
 
 """
-Stress test concorrente per retry idempotenti.
-
 Simula piu' client concorrenti che inviano operazioni mutative con retry
 randomici. Verifica che il valore finale sia coerente e che nessun
 doppio effetto si sia verificato.
@@ -59,7 +57,8 @@ class RawClient:
         self._file.close()
         self._socket.close()
 
-
+# Questa funzione verrà lanciata in parallelo da ogni thread. Rappresenta la vita
+# autonoma di un client che invia comandi e, casualmente, "impazzisce" inviando retry.
 def worker(
     client_id: str,
     host: str,
@@ -70,11 +69,8 @@ def worker(
     key: str,
     results: Queue,
 ) -> None:
-    """
-    Worker thread: invia num_ops SET_REQ su 'key', ciascuna con un
-    valore diverso. Dopo ogni invio, con probabilita' retry_prob
-    rimanda la stessa richiesta (simulando un retry dopo timeout).
-    """
+    """ Worker thread: invia num_ops SET_REQ su key, ciascuna con un valore diverso. Dopo ogni invio,
+    con probabilita' retry_prob rimanda la stessa richiesta (simulando un retry dopo timeout)."""
     client = RawClient(host, port)
     errors = []
     total_sent = 0
@@ -120,6 +116,7 @@ def worker(
     })
 
 
+# In questo scenario 10 client fanno retry simultaneo della stessa richiesta.
 def run_exact_collision_test(host: str, port: int, run_id: str, num_threads: int = 10) -> list[str]:
     """
     Test di collisione esatta sulla sezione critica.
@@ -143,7 +140,7 @@ def run_exact_collision_test(host: str, port: int, run_id: str, num_threads: int
     setup_client.send(f"SET_REQ {client_id}:1 {key} initial_val")
     setup_client.close()
 
-    # Tutti i thread inviano ESATTAMENTE lo stesso comando (stesso request_id)
+    # Tutti i thread inviano esattamente lo stesso comando (stesso request_id)
     command = f"SET_REQ {client_id}:999 {key} conc_val"
     results: list[str] = []
     errors: list[str] = []
